@@ -1,4 +1,5 @@
 import streamlit as st
+import numpy as np
 from tradingview_screener import Query, col
 
 st.set_page_config(page_title="USTEL1030 Tarayıcı", page_icon="📈", layout="wide")
@@ -28,14 +29,48 @@ if st.button("▶ Tara", type="primary"):
                 'price_earnings_ttm': 'F/K',
                 'price_book_ratio': 'PD/DD',
             })
-            df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']]
+            df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']].copy()
+            df['Score'] = 0
+
+            n = len(df)
+            # Kaç hisseye puan verileceğini belirle
+            if n >= 5:
+                top_n = 5
+            elif n >= 3:
+                top_n = 3
+            elif n >= 1:
+                top_n = 1
+            else:
+                top_n = 0
+
+            if top_n > 0:
+                # Haftalık % en az artan → en düşük değer en iyi → nsmallest
+                hw_idx = df['Haftalık %'].dropna().nsmallest(top_n).index
+                df.loc[hw_idx, 'Score'] += 3
+
+                # F/K en düşük → nsmallest
+                fk_idx = df['F/K'].dropna().nsmallest(top_n).index
+                df.loc[fk_idx, 'Score'] += 4
+
+                # PD/DD en düşük → nsmallest
+                pb_idx = df['PD/DD'].dropna().nsmallest(top_n).index
+                df.loc[pb_idx, 'Score'] += 3
+
+            df = df.sort_values('Score', ascending=False).reset_index(drop=True)
 
             st.success(f"✅ {count} hisse bulundu")
             st.dataframe(
                 df.style
                   .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
                   .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
-                  .format({'Fiyat': '${:.2f}', 'Haftalık %': '{:.2f}%', 'F/K': '{:.1f}', 'PD/DD': '{:.2f}'}),
+                  .background_gradient(subset=['Score'], cmap='RdYlGn')
+                  .format({
+                      'Fiyat': '${:.2f}',
+                      'Haftalık %': '{:.2f}%',
+                      'F/K': '{:.1f}',
+                      'PD/DD': '{:.2f}',
+                      'Score': '{:.0f}'
+                  }),
                 use_container_width=True,
                 hide_index=True
             )
