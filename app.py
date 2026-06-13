@@ -10,16 +10,35 @@ if st.button("▶ Tara", type="primary"):
         try:
             count, df = (
                 Query()
-                .select('name', 'close', 'change_abs_1W', 'price_earnings_ttm', 'price_book_ratio')
+                .select('name', 'close', 'change|1W', 'price_earnings_ttm', 'price_book_ratio')
                 .where(
                     col('EMA10').crosses_above(col('EMA30')),
+                    col('change|1W') < 15,
+                    col('price_earnings_ttm').between(0, 50),
+                    col('price_book_ratio').between(0, 25),
                 )
                 .limit(200)
                 .get_scanner_data()
             )
 
+            df = df.rename(columns={
+                'name': 'Sembol',
+                'close': 'Fiyat',
+                'change|1W': 'Haftalık %',
+                'price_earnings_ttm': 'F/K',
+                'price_book_ratio': 'PD/DD',
+            })
+            df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']]
+
             st.success(f"✅ {count} hisse bulundu")
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(
+                df.style
+                  .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
+                  .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
+                  .format({'Fiyat': '${:.2f}', 'Haftalık %': '{:.2f}%', 'F/K': '{:.1f}', 'PD/DD': '{:.2f}'}),
+                use_container_width=True,
+                hide_index=True
+            )
 
         except Exception as e:
             st.error(f"Hata: {e}")
