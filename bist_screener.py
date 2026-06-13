@@ -61,7 +61,7 @@ if st.button("▶ Tara", type="primary"):
                   .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
                   .background_gradient(subset=['Score'], cmap='RdYlGn')
                   .format({
-                      'Fiyat': '${:.2f}',
+                      'Fiyat': '₺{:.2f}',
                       'Haftalık %': '{:.2f}%',
                       'F/K': '{:.1f}',
                       'PD/DD': '{:.2f}',
