@@ -1,23 +1,23 @@
 import streamlit as st
 import pandas as pd
-from tradingview_screener import Scanner, Column
+from tradingview_screener import Query, col
 
 st.set_page_config(page_title="USTEL1030 Tarayıcı", page_icon="📈", layout="wide")
 
 st.title("📈 USTEL1030 Tarayıcı")
 st.caption("EMA10↑EMA30 · F/K ≤ 50 · P/B ≤ 25 · Haftalık Değişim < %15")
 
-if st.button("▶ Tara", type="primary", use_container_width=False):
+if st.button("▶ Tara", type="primary"):
     with st.spinner("TradingView taranıyor..."):
         try:
             count, df = (
-                Scanner.us()
-                .set_markets("america")
+                Query()
+                .select("name", "close", "change_abs_1W", "price_earnings_ttm", "price_book_ratio", "volume", "market_cap_basic")
                 .where(
-                    Column("EMA[10]").crosses_above(Column("EMA[30]")),
-                    Column("change_abs_1W") < 15,
-                    Column("price_earnings_ttm").between(0, 50),
-                    Column("price_book_ratio").between(0, 25),
+                    col("EMA10").crosses_above(col("EMA30")),
+                    col("change_abs_1W") < 15,
+                    col("price_earnings_ttm").between(0, 50),
+                    col("price_book_ratio").between(0, 25),
                 )
                 .get_scanner_data()
             )
@@ -31,8 +31,6 @@ if st.button("▶ Tara", type="primary", use_container_width=False):
                     "change_abs_1W": "Haftalık %",
                     "price_earnings_ttm": "F/K",
                     "price_book_ratio": "P/B",
-                    "market_cap_basic": "Piyasa Değeri",
-                    "volume": "Hacim"
                 })
                 st.success(f"✅ {count} hisse bulundu")
                 st.dataframe(
