@@ -1,10 +1,36 @@
 import streamlit as st
-import numpy as np
+import json
+import requests
 from tradingview_screener import Query, col
+from datetime import datetime
 
 st.set_page_config(page_title="USTEL1030 Tarayıcı", page_icon="📈", layout="wide")
 st.title("📈 USTEL1030 Tarayıcı")
 st.caption("EMA10↑EMA30 · F/K ≤ 50 · P/B ≤ 25 · Haftalık Değişim < %15")
+
+def save_to_github(df):
+    token = st.secrets["GITHUB_TOKEN"]
+    repo = st.secrets["GITHUB_REPO"]
+    path = "results/abd_results.json"
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    
+    content = {
+        "tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "hisseler": df.to_dict(orient='records')
+    }
+    
+    headers = {"Authorization": f"token {token}"}
+    r = requests.get(url, headers=headers)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+    
+    import base64
+    encoded = base64.b64encode(json.dumps(content, ensure_ascii=False, indent=2).encode()).decode()
+    
+    payload = {"message": f"Update {datetime.now().strftime('%Y-%m-%d %H:%M')}", "content": encoded}
+    if sha:
+        payload["sha"] = sha
+    
+    requests.put(url, headers=headers, json=payload)
 
 if st.button("▶ Tara", type="primary"):
     with st.spinner("Taranıyor..."):
@@ -33,28 +59,12 @@ if st.button("▶ Tara", type="primary"):
             df['Score'] = 0
 
             n = len(df)
-            # Kaç hisseye puan verileceğini belirle
-            if n >= 5:
-                top_n = 5
-            elif n >= 3:
-                top_n = 3
-            elif n >= 1:
-                top_n = 1
-            else:
-                top_n = 0
+            top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
 
             if top_n > 0:
-                # Haftalık % en az artan → en düşük değer en iyi → nsmallest
-                hw_idx = df['Haftalık %'].dropna().nsmallest(top_n).index
-                df.loc[hw_idx, 'Score'] += 3
-
-                # F/K en düşük → nsmallest
-                fk_idx = df['F/K'].dropna().nsmallest(top_n).index
-                df.loc[fk_idx, 'Score'] += 4
-
-                # PD/DD en düşük → nsmallest
-                pb_idx = df['PD/DD'].dropna().nsmallest(top_n).index
-                df.loc[pb_idx, 'Score'] += 3
+                df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
+                df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
+                df.loc[df['PD/DD'].dropna().nsmallest(top_n).index, 'Score'] += 3
 
             df = df.sort_values('Score', ascending=False).reset_index(drop=True)
 
@@ -74,6 +84,10 @@ if st.button("▶ Tara", type="primary"):
                 use_container_width=True,
                 hide_index=True
             )
+
+            if st.button("📤 GitHub'a Kaydet"):
+                save_to_github(df)
+                st.success("GitHub'a kaydedildi!")
 
         except Exception as e:
             st.error(f"Hata: {e}")
