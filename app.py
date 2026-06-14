@@ -53,6 +53,10 @@ if st.button("▶ Tara", type="primary"):
                 'price_book_ratio': 'PD/DD',
             })
             df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']].copy()
+            # Preferred stock, warrant, unit gibi hisseleri ayıkla
+df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
+df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
+df = df.reset_index(drop=True)
             df['Score'] = 0
             n = len(df)
             top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
