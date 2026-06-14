@@ -27,72 +27,82 @@ def save_to_github(df):
         payload["sha"] = sha
     requests.put(url, headers=headers, json=payload)
 
-def get_technical_analysis(symbols):
-    if not symbols:
-        return ""
-    symbol_list = ", ".join(symbols)
-    prompt = f"""Analyze these stocks for a Turkish investor: {symbol_list}
+def tavsiye_uret(rsi, macd, macd_signal, ema10, ema50, ema200, fiyat):
+    puanlar = 0
+    yorumlar = []
 
-For each stock, search for current RSI(14), MACD, EMA10, EMA50, EMA200 values on daily chart.
+    # RSI
+    if rsi is None:
+        rsi_durum = "Veri yok"
+    elif rsi < 30:
+        rsi_durum = f"{rsi:.0f} — Aşırı Satım"
+        puanlar += 2
+        yorumlar.append("RSI aşırı satımda")
+    elif rsi > 70:
+        rsi_durum = f"{rsi:.0f} — Aşırı Alım"
+        puanlar -= 2
+        yorumlar.append("RSI aşırı alımda")
+    else:
+        rsi_durum = f"{rsi:.0f} — Nötr"
 
-Then provide a brief analysis table in Turkish with columns:
-- Sembol
-- RSI (value + overbought/oversold/neutral in Turkish: Aşırı Alım/Aşırı Satım/Nötr)
-- MACD (Pozitif/Negatif)
-- EMA Durumu (Fiyat EMA10/50/200'ün üzerinde mi altında mı, kısaca)
-- Tavsiye (AL ✅ / İZLE 🟡 / SAT/UZAK DUR ❌)
-- Kısa yorum (1 cümle Türkçe)
+    # MACD
+    if macd is None or macd_signal is None:
+        macd_durum = "Veri yok"
+    elif macd > macd_signal:
+        macd_durum = "Pozitif ✅"
+        puanlar += 1
+        yorumlar.append("MACD pozitif")
+    else:
+        macd_durum = "Negatif ❌"
+        puanlar -= 1
+        yorumlar.append("MACD negatif")
 
-Format as a clean markdown table. Be concise."""
+    # EMA Durumu
+    ema_satirlar = []
+    if ema10 and fiyat:
+        ema_satirlar.append("EMA10 ✅" if fiyat > ema10 else "EMA10 ❌")
+        if fiyat > ema10:
+            puanlar += 1
+    if ema50 and fiyat:
+        ema_satirlar.append("EMA50 ✅" if fiyat > ema50 else "EMA50 ❌")
+        if fiyat > ema50:
+            puanlar += 1
+    if ema200 and fiyat:
+        ema_satirlar.append("EMA200 ✅" if fiyat > ema200 else "EMA200 ❌")
+        if fiyat > ema200:
+            puanlar += 1
+    ema_durum = " / ".join(ema_satirlar) if ema_satirlar else "Veri yok"
 
-    try:
-        messages = [{"role": "user", "content": prompt}]
-        tools = [{"type": "web_search_20250305", "name": "web_search"}]
-        
-        for _ in range(6):
-            response = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "model": "claude-sonnet-4-6",
-                    "max_tokens": 2000,
-                    "tools": tools,
-                    "messages": messages
-                },
-                timeout=60
-            )
-            if not response.ok:
-                return f"API Hatası: {response.status_code}"
-            
-            data = response.json()
-            messages.append({"role": "assistant", "content": data["content"]})
-            
-            tool_uses = [b for b in data["content"] if b["type"] == "tool_use"]
-            if data["stop_reason"] == "end_turn" or not tool_uses:
-                return "".join(b["text"] for b in data["content"] if b["type"] == "text")
-            
-            messages.append({"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": b["id"], "content": "Search completed."} 
-                for b in tool_uses
-            ]})
-        
-        return "Analiz tamamlanamadı."
-    except Exception as e:
-        return f"Hata: {str(e)}"
+    # Tavsiye
+    if puanlar >= 3:
+        tavsiye = "AL ✅"
+    elif puanlar >= 1:
+        tavsiye = "İZLE 🟡"
+    else:
+        tavsiye = "UZAK DUR ❌"
+
+    yorum = ", ".join(yorumlar) if yorumlar else "Nötr görünüm"
+
+    return rsi_durum, macd_durum, ema_durum, tavsiye, yorum
 
 if "df_result" not in st.session_state:
     st.session_state.df_result = None
 if "count_result" not in st.session_state:
     st.session_state.count_result = 0
-if "analysis" not in st.session_state:
-    st.session_state.analysis = None
+if "df_technical" not in st.session_state:
+    st.session_state.df_technical = None
 
 if st.button("▶ Tara", type="primary"):
     with st.spinner("Taranıyor..."):
         try:
             count, df = (
                 Query()
-                .select('name', 'close', 'change|1W', 'price_earnings_ttm', 'price_book_ratio')
+                .select(
+                    'name', 'close', 'change|1W',
+                    'price_earnings_ttm', 'price_book_ratio',
+                    'RSI', 'MACD.macd', 'MACD.signal',
+                    'EMA10', 'EMA50', 'EMA200'
+                )
                 .where(
                     col('EMA10').crosses_above(col('EMA30')),
                     col('change|1W') < 15,
@@ -102,19 +112,27 @@ if st.button("▶ Tara", type="primary"):
                 .limit(200)
                 .get_scanner_data()
             )
+
             df = df.rename(columns={
                 'name': 'Sembol',
                 'close': 'Fiyat',
                 'change|1W': 'Haftalık %',
                 'price_earnings_ttm': 'F/K',
                 'price_book_ratio': 'PD/DD',
+                'RSI': 'RSI',
+                'MACD.macd': 'MACD',
+                'MACD.signal': 'MACD_Signal',
+                'EMA10': 'EMA10',
+                'EMA50': 'EMA50',
+                'EMA200': 'EMA200',
             })
-            df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']].copy()
+
             df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
             df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
             df = df[~df['Sembol'].str.contains(r'^[A-Z]+P[A-Z]?$', regex=True)]
             df = df[~df['Sembol'].str.endswith(('F', 'Y'))]
             df = df.reset_index(drop=True)
+
             df['Score'] = 0
             n = len(df)
             top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
@@ -122,10 +140,32 @@ if st.button("▶ Tara", type="primary"):
                 df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
                 df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
                 df.loc[df['PD/DD'].dropna().nsmallest(top_n).index, 'Score'] += 3
+
             df = df.sort_values('Score', ascending=False).reset_index(drop=True)
             st.session_state.df_result = df
             st.session_state.count_result = count
-            st.session_state.analysis = None
+
+            # Top hisseler için teknik analiz tablosu
+            top_df = df.head(top_n).copy()
+            teknik_rows = []
+            for _, row in top_df.iterrows():
+                rsi_d, macd_d, ema_d, tav, yorum = tavsiye_uret(
+                    row.get('RSI'), row.get('MACD'), row.get('MACD_Signal'),
+                    row.get('EMA10'), row.get('EMA50'), row.get('EMA200'),
+                    row.get('Fiyat')
+                )
+                teknik_rows.append({
+                    'Sembol': row['Sembol'],
+                    'RSI': rsi_d,
+                    'MACD': macd_d,
+                    'EMA Durumu': ema_d,
+                    'Tavsiye': tav,
+                    'Yorum': yorum
+                })
+            
+            import pandas as pd
+            st.session_state.df_technical = pd.DataFrame(teknik_rows)
+
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -136,7 +176,7 @@ if st.session_state.df_result is not None:
 
     st.success(f"✅ {st.session_state.count_result} hisse bulundu")
     st.dataframe(
-        df.style
+        df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD', 'Score']].style
           .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
           .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
           .background_gradient(subset=['Score'], cmap='RdYlGn')
@@ -151,19 +191,11 @@ if st.session_state.df_result is not None:
         hide_index=True
     )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📤 GitHub'a Kaydet"):
-            save_to_github(df)
-            st.success("✅ GitHub'a kaydedildi!")
-    with col2:
-        if top_n > 0:
-            top_symbols = df.head(top_n)['Sembol'].tolist()
-            if st.button(f"🔍 Top {top_n} Hisse Teknik Analiz"):
-                with st.spinner(f"Top {top_n} hisse için teknik analiz yapılıyor..."):
-                    st.session_state.analysis = get_technical_analysis(top_symbols)
-
-    if st.session_state.analysis:
+    if st.session_state.df_technical is not None and not st.session_state.df_technical.empty:
         st.divider()
         st.subheader(f"📊 Top {top_n} Teknik Analiz")
-        st.markdown(st.session_state.analysis)
+        st.dataframe(st.session_state.df_technical, use_container_width=True, hide_index=True)
+
+    if st.button("📤 GitHub'a Kaydet"):
+        save_to_github(df)
+        st.success("✅ GitHub'a kaydedildi!")
