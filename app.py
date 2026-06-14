@@ -47,26 +47,35 @@ if st.button("▶ Tara", type="primary"):
                 .limit(200)
                 .get_scanner_data()
             )
+
             df = df.rename(columns={
-                'name': 'Sembol', 'close': 'Fiyat',
-                'change|1W': 'Haftalık %', 'price_earnings_ttm': 'F/K',
+                'name': 'Sembol',
+                'close': 'Fiyat',
+                'change|1W': 'Haftalık %',
+                'price_earnings_ttm': 'F/K',
                 'price_book_ratio': 'PD/DD',
             })
+
             df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']].copy()
+
             # Preferred stock, warrant, unit gibi hisseleri ayıkla
-df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
-df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
-df = df.reset_index(drop=True)
+            df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
+            df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
+            df = df.reset_index(drop=True)
+
             df['Score'] = 0
             n = len(df)
             top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
+
             if top_n > 0:
                 df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
                 df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
                 df.loc[df['PD/DD'].dropna().nsmallest(top_n).index, 'Score'] += 3
+
             df = df.sort_values('Score', ascending=False).reset_index(drop=True)
             st.session_state.df_result = df
             st.session_state.count_result = count
+
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -79,10 +88,14 @@ if st.session_state.df_result is not None:
           .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
           .background_gradient(subset=['Score'], cmap='RdYlGn')
           .format({
-              'Fiyat': '${:.2f}', 'Haftalık %': '{:.2f}%',
-              'F/K': '{:.1f}', 'PD/DD': '{:.2f}', 'Score': '{:.0f}'
+              'Fiyat': '${:.2f}',
+              'Haftalık %': '{:.2f}%',
+              'F/K': '{:.1f}',
+              'PD/DD': '{:.2f}',
+              'Score': '{:.0f}'
           }),
-        use_container_width=True, hide_index=True
+        use_container_width=True,
+        hide_index=True
     )
     if st.button("📤 GitHub'a Kaydet"):
         save_to_github(df)
