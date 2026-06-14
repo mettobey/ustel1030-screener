@@ -47,7 +47,6 @@ if st.button("▶ Tara", type="primary"):
                 .limit(200)
                 .get_scanner_data()
             )
-
             df = df.rename(columns={
                 'name': 'Sembol',
                 'close': 'Fiyat',
@@ -55,31 +54,22 @@ if st.button("▶ Tara", type="primary"):
                 'price_earnings_ttm': 'F/K',
                 'price_book_ratio': 'PD/DD',
             })
-
             df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']].copy()
-
-            # Preferred stock, warrant, unit gibi hisseleri ayıkla
-            # Preferred stock, warrant, unit, yabancı OTC hisseleri ayıkla
-df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
-df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
-df = df[~df['Sembol'].str.contains(r'^[A-Z]+P[A-Z]?$', regex=True)]
-df = df[~df['Sembol'].str.endswith(('F', 'Y'))]
-df = df.reset_index(drop=True)
-
-
+            df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
+            df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
+            df = df[~df['Sembol'].str.contains(r'^[A-Z]+P[A-Z]?$', regex=True)]
+            df = df[~df['Sembol'].str.endswith(('F', 'Y'))]
+            df = df.reset_index(drop=True)
             df['Score'] = 0
             n = len(df)
             top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
-
             if top_n > 0:
                 df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
                 df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
                 df.loc[df['PD/DD'].dropna().nsmallest(top_n).index, 'Score'] += 3
-
             df = df.sort_values('Score', ascending=False).reset_index(drop=True)
             st.session_state.df_result = df
             st.session_state.count_result = count
-
         except Exception as e:
             st.error(f"Hata: {e}")
 
