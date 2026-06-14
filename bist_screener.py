@@ -124,7 +124,8 @@ if st.button("▶ Tara", type="primary"):
             df = df.reset_index(drop=True)
             df['Score'] = 0
             n = len(df)
-            top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
+            top_n = 5 if n >= 5 else (3 if n >= 3 else (2 if n >= 2 else (1 if n >= 1 else 0)))
+
             if top_n > 0:
                 df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
                 df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
