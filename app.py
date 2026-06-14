@@ -5,8 +5,8 @@ import base64
 from tradingview_screener import Query, col
 from datetime import datetime
 
-st.set_page_config(page_title="USTEL1030 Tarayıcı (mburha YTD)", page_icon="📈", layout="wide")
-st.title("📈 USTEL1030 Tarayıcı (mburha YTD)")
+st.set_page_config(page_title="ABD hisse USTEL1030 Tarayıcı (mburha YTD)", page_icon="📈", layout="wide")
+st.title("📈 ABD hisse USTEL1030 Tarayıcı (mburha YTD)")
 st.caption("EMA10↑EMA30 · F/K ≤ 50 · P/B ≤ 25 · Haftalık Değişim < %15")
 
 def save_to_github(df):
