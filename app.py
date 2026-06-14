@@ -59,9 +59,13 @@ if st.button("▶ Tara", type="primary"):
             df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']].copy()
 
             # Preferred stock, warrant, unit gibi hisseleri ayıkla
-            df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
-            df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
-            df = df.reset_index(drop=True)
+            # Preferred stock, warrant, unit, yabancı OTC hisseleri ayıkla
+df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
+df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
+df = df[~df['Sembol'].str.contains(r'^[A-Z]+P[A-Z]?$', regex=True)]
+df = df[~df['Sembol'].str.endswith(('F', 'Y'))]
+df = df.reset_index(drop=True)
+
 
             df['Score'] = 0
             n = len(df)
