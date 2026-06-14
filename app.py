@@ -27,10 +27,65 @@ def save_to_github(df):
         payload["sha"] = sha
     requests.put(url, headers=headers, json=payload)
 
+def get_technical_analysis(symbols):
+    if not symbols:
+        return ""
+    symbol_list = ", ".join(symbols)
+    prompt = f"""Analyze these stocks for a Turkish investor: {symbol_list}
+
+For each stock, search for current RSI(14), MACD, EMA10, EMA50, EMA200 values on daily chart.
+
+Then provide a brief analysis table in Turkish with columns:
+- Sembol
+- RSI (value + overbought/oversold/neutral in Turkish: Aşırı Alım/Aşırı Satım/Nötr)
+- MACD (Pozitif/Negatif)
+- EMA Durumu (Fiyat EMA10/50/200'ün üzerinde mi altında mı, kısaca)
+- Tavsiye (AL ✅ / İZLE 🟡 / SAT/UZAK DUR ❌)
+- Kısa yorum (1 cümle Türkçe)
+
+Format as a clean markdown table. Be concise."""
+
+    try:
+        messages = [{"role": "user", "content": prompt}]
+        tools = [{"type": "web_search_20250305", "name": "web_search"}]
+        
+        for _ in range(6):
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 2000,
+                    "tools": tools,
+                    "messages": messages
+                },
+                timeout=60
+            )
+            if not response.ok:
+                return f"API Hatası: {response.status_code}"
+            
+            data = response.json()
+            messages.append({"role": "assistant", "content": data["content"]})
+            
+            tool_uses = [b for b in data["content"] if b["type"] == "tool_use"]
+            if data["stop_reason"] == "end_turn" or not tool_uses:
+                return "".join(b["text"] for b in data["content"] if b["type"] == "text")
+            
+            messages.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": b["id"], "content": "Search completed."} 
+                for b in tool_uses
+            ]})
+        
+        return "Analiz tamamlanamadı."
+    except Exception as e:
+        return f"Hata: {str(e)}"
+
 if "df_result" not in st.session_state:
     st.session_state.df_result = None
 if "count_result" not in st.session_state:
     st.session_state.count_result = 0
+if "analysis" not in st.session_state:
+    st.session_state.analysis = None
 
 if st.button("▶ Tara", type="primary"):
     with st.spinner("Taranıyor..."):
@@ -70,11 +125,15 @@ if st.button("▶ Tara", type="primary"):
             df = df.sort_values('Score', ascending=False).reset_index(drop=True)
             st.session_state.df_result = df
             st.session_state.count_result = count
+            st.session_state.analysis = None
         except Exception as e:
             st.error(f"Hata: {e}")
 
 if st.session_state.df_result is not None:
     df = st.session_state.df_result
+    n = len(df)
+    top_n = min(5, n) if n > 0 else 0
+
     st.success(f"✅ {st.session_state.count_result} hisse bulundu")
     st.dataframe(
         df.style
@@ -91,6 +150,20 @@ if st.session_state.df_result is not None:
         use_container_width=True,
         hide_index=True
     )
-    if st.button("📤 GitHub'a Kaydet"):
-        save_to_github(df)
-        st.success("✅ GitHub'a kaydedildi!")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📤 GitHub'a Kaydet"):
+            save_to_github(df)
+            st.success("✅ GitHub'a kaydedildi!")
+    with col2:
+        if top_n > 0:
+            top_symbols = df.head(top_n)['Sembol'].tolist()
+            if st.button(f"🔍 Top {top_n} Hisse Teknik Analiz"):
+                with st.spinner(f"Top {top_n} hisse için teknik analiz yapılıyor..."):
+                    st.session_state.analysis = get_technical_analysis(top_symbols)
+
+    if st.session_state.analysis:
+        st.divider()
+        st.subheader(f"📊 Top {top_n} Teknik Analiz")
+        st.markdown(st.session_state.analysis)
