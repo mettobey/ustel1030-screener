@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import requests
+import base64
 from tradingview_screener import Query, col
 from datetime import datetime
 
@@ -13,24 +14,23 @@ def save_to_github(df):
     repo = st.secrets["GITHUB_REPO"]
     path = "results/abd_results.json"
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
-    
     content = {
         "tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "hisseler": df.to_dict(orient='records')
     }
-    
     headers = {"Authorization": f"token {token}"}
     r = requests.get(url, headers=headers)
     sha = r.json().get("sha") if r.status_code == 200 else None
-    
-    import base64
     encoded = base64.b64encode(json.dumps(content, ensure_ascii=False, indent=2).encode()).decode()
-    
     payload = {"message": f"Update {datetime.now().strftime('%Y-%m-%d %H:%M')}", "content": encoded}
     if sha:
         payload["sha"] = sha
-    
     requests.put(url, headers=headers, json=payload)
+
+if "df_result" not in st.session_state:
+    st.session_state.df_result = None
+if "count_result" not in st.session_state:
+    st.session_state.count_result = 0
 
 if st.button("▶ Tara", type="primary"):
     with st.spinner("Taranıyor..."):
@@ -47,47 +47,39 @@ if st.button("▶ Tara", type="primary"):
                 .limit(200)
                 .get_scanner_data()
             )
-
             df = df.rename(columns={
-                'name': 'Sembol',
-                'close': 'Fiyat',
-                'change|1W': 'Haftalık %',
-                'price_earnings_ttm': 'F/K',
+                'name': 'Sembol', 'close': 'Fiyat',
+                'change|1W': 'Haftalık %', 'price_earnings_ttm': 'F/K',
                 'price_book_ratio': 'PD/DD',
             })
             df = df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD']].copy()
             df['Score'] = 0
-
             n = len(df)
             top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
-
             if top_n > 0:
                 df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
                 df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
                 df.loc[df['PD/DD'].dropna().nsmallest(top_n).index, 'Score'] += 3
-
             df = df.sort_values('Score', ascending=False).reset_index(drop=True)
-
-            st.success(f"✅ {count} hisse bulundu")
-            st.dataframe(
-                df.style
-                  .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
-                  .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
-                  .background_gradient(subset=['Score'], cmap='RdYlGn')
-                  .format({
-                      'Fiyat': '${:.2f}',
-                      'Haftalık %': '{:.2f}%',
-                      'F/K': '{:.1f}',
-                      'PD/DD': '{:.2f}',
-                      'Score': '{:.0f}'
-                  }),
-                use_container_width=True,
-                hide_index=True
-            )
-
-            if st.button("📤 GitHub'a Kaydet"):
-                save_to_github(df)
-                st.success("GitHub'a kaydedildi!")
-
+            st.session_state.df_result = df
+            st.session_state.count_result = count
         except Exception as e:
             st.error(f"Hata: {e}")
+
+if st.session_state.df_result is not None:
+    df = st.session_state.df_result
+    st.success(f"✅ {st.session_state.count_result} hisse bulundu")
+    st.dataframe(
+        df.style
+          .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
+          .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
+          .background_gradient(subset=['Score'], cmap='RdYlGn')
+          .format({
+              'Fiyat': '${:.2f}', 'Haftalık %': '{:.2f}%',
+              'F/K': '{:.1f}', 'PD/DD': '{:.2f}', 'Score': '{:.0f}'
+          }),
+        use_container_width=True, hide_index=True
+    )
+    if st.button("📤 GitHub'a Kaydet"):
+        save_to_github(df)
+        st.success("✅ GitHub'a kaydedildi!")
