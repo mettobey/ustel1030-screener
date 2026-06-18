@@ -6,15 +6,19 @@ import pandas as pd
 st.set_page_config(page_title="XYZ Analizi - US Hisseler", page_icon="🔬", layout="wide")
 
 st.title("XYZ Analizi - US Hisse Teknik Tarayici")
-st.caption("RSI - MACD - EMA5/50/200 - Hacim - TradingView verisi")
+st.caption("RSI - MACD - EMA5/50/200 - Hacim Yonu - Forward PE - TradingView verisi")
 
-DEFAULT_TICKERS = ["BRZE", "PLTR", "QBTS", "OKLO", "CRSP", "MRVL", "NVDA", "MMED", "LLY", "OSCR"]
+DEFAULT_TICKERS = [
+    "ONDS", "ABCL", "NKE", "NOW", "BRZE", "QBTS", "OKLO", "CRSP", "MRVL",
+    "NVDA", "MMED", "LLY", "CEG", "Q", "LASR", "AVGO", "WWD", "VRT",
+    "DRAM", "VST", "ANET", "QXL"
+]
 
 st.sidebar.header("Ayarlar")
 custom_input = st.sidebar.text_area(
     "Hisse listesi (virgülle ayir)",
     value=", ".join(DEFAULT_TICKERS),
-    height=200
+    height=250
 )
 tickers = [t.strip().upper() for t in custom_input.split(",") if t.strip()]
 
@@ -28,45 +32,51 @@ def xyz_degerlendir(row):
     ema200   = row.get("EMA200")
     volume   = row.get("Hacim")
     vol_avg  = row.get("Hacim_Ort")
+    vol_1g   = row.get("Hacim_1G_Once")
+    fwd_pe   = row.get("Forward_PE")
+    ttm_pe   = row.get("Trailing_PE")
 
     puan = 0
     pozitif = []
     negatif = []
 
+    # RSI
     if rsi is not None:
         if rsi < 30:
             rsi_label = str(round(rsi, 1)) + " Asiri Satim"
             puan += 2
-            pozitif.append("RSI asiri satim bolgesinde")
+            pozitif.append("RSI asiri satim")
         elif rsi < 45:
             rsi_label = str(round(rsi, 1)) + " Satim Yakini"
             puan += 1
-            pozitif.append("RSI dip bolgesine yakin")
+            pozitif.append("RSI dip yakini")
         elif rsi < 60:
             rsi_label = str(round(rsi, 1)) + " Notr"
         elif rsi < 70:
             rsi_label = str(round(rsi, 1)) + " Alim Yakini"
             puan -= 1
-            negatif.append("RSI alim bolgesine yakin")
+            negatif.append("RSI alim yakini")
         else:
             rsi_label = str(round(rsi, 1)) + " Asiri Alim"
             puan -= 2
-            negatif.append("RSI asiri alim - duzeltme riski")
+            negatif.append("RSI asiri alim")
     else:
         rsi_label = "Veri yok"
 
+    # MACD
     if macd is not None and macd_sig is not None:
         if macd > macd_sig:
             macd_label = str(round(macd, 3)) + " Pozitif"
             puan += 1
-            pozitif.append("MACD sinyal ustunde")
+            pozitif.append("MACD pozitif")
         else:
             macd_label = str(round(macd, 3)) + " Negatif"
             puan -= 1
-            negatif.append("MACD sinyal altinda")
+            negatif.append("MACD negatif")
     else:
         macd_label = "Veri yok"
 
+    # EMA
     ema_satirlar = []
     if fiyat:
         for label, val in [("EMA5", ema5), ("EMA50", ema50), ("EMA200", ema200)]:
@@ -81,21 +91,57 @@ def xyz_degerlendir(row):
                     negatif.append("Fiyat " + label + " altinda")
     ema_label = " / ".join(ema_satirlar) if ema_satirlar else "Veri yok"
 
+    # Hacim seviyesi + yonu
     if volume and vol_avg and vol_avg > 0:
         oran = volume / vol_avg
-        if oran > 1.5:
-            hacim_label = "Yuksek " + str(round(oran, 1)) + "x"
-            puan += 1
-            pozitif.append("Yuksek hacim")
-        elif oran > 0.8:
-            hacim_label = "Normal " + str(round(oran, 1)) + "x"
+        # Hacim yonu: bugun vs dun
+        if vol_1g and vol_1g > 0:
+            if volume > vol_1g * 1.1:
+                yon = "artan"
+            elif volume < vol_1g * 0.9:
+                yon = "azalan"
+            else:
+                yon = "yatay"
         else:
-            hacim_label = "Dusuk " + str(round(oran, 1)) + "x"
-            negatif.append("Hacim ortalamanin altinda")
+            yon = "?"
+
+        if oran > 1.5:
+            hacim_label = "Yuksek " + str(round(oran, 1)) + "x (" + yon + ")"
+            puan += 1
+            pozitif.append("Yuksek hacim " + yon)
+        elif oran > 0.8:
+            hacim_label = "Normal " + str(round(oran, 1)) + "x (" + yon + ")"
+        else:
+            hacim_label = "Dusuk " + str(round(oran, 1)) + "x (" + yon + ")"
+            negatif.append("Dusuk hacim")
+
+        # Hacim yonu ek puan
+        if yon == "artan" and fiyat and ema5 and fiyat > ema5:
+            puan += 1
+            pozitif.append("Hacim artarken fiyat yukari")
+        elif yon == "azalan" and fiyat and ema5 and fiyat < ema5:
+            puan += 1
+            pozitif.append("Dususte hacim azaliyor (panik yok)")
     else:
         hacim_label = "Veri yok"
 
-    if puan >= 4:
+    # Forward PE < Trailing PE => kar buyumesi bekleniyor
+    if fwd_pe is not None and ttm_pe is not None and fwd_pe > 0 and ttm_pe > 0:
+        if fwd_pe < ttm_pe:
+            iyilesme = round((1 - fwd_pe / ttm_pe) * 100, 1)
+            pe_label = "Fwd " + str(round(fwd_pe, 1)) + " < TTM " + str(round(ttm_pe, 1)) + " (kar buyumesi +%" + str(iyilesme) + ")"
+            puan += 1
+            pozitif.append("Forward PE iyilesiyor")
+        else:
+            pe_label = "Fwd " + str(round(fwd_pe, 1)) + " > TTM " + str(round(ttm_pe, 1)) + " (kar daralmasi)"
+            negatif.append("Forward PE kotulesiyor")
+    elif fwd_pe is not None and fwd_pe > 0 and (ttm_pe is None or ttm_pe <= 0):
+        pe_label = "Fwd " + str(round(fwd_pe, 1)) + " (TTM negatif/yok)"
+    else:
+        pe_label = "Veri yok"
+
+    # Genel sinyal
+    if puan >= 5:
         sinyal = "GUCLU AL"
     elif puan >= 2:
         sinyal = "AL / IZLE"
@@ -111,6 +157,7 @@ def xyz_degerlendir(row):
         "MACD": macd_label,
         "EMA Durumu": ema_label,
         "Hacim": hacim_label,
+        "Forward PE": pe_label,
         "Puan": puan,
         "Sinyal": sinyal,
         "Pozitifler": " / ".join(pozitif) if pozitif else "-",
@@ -124,7 +171,7 @@ c1, c2 = st.columns([1, 4])
 with c1:
     tara_btn = st.button("Tara", type="primary", use_container_width=True)
 with c2:
-    st.info("Taranacak: " + ", ".join(tickers))
+    st.info(str(len(tickers)) + " hisse taranacak")
 
 if tara_btn:
     with st.spinner("TradingView verisi cekiliyor..."):
@@ -137,11 +184,12 @@ if tara_btn:
                     "RSI", "RSI[1]",
                     "MACD.macd", "MACD.signal",
                     "EMA5", "EMA10", "EMA50", "EMA200",
-                    "volume", "average_volume_10d_calc",
+                    "volume", "average_volume_10d_calc", "volume|1",
+                    "price_earnings_ttm", "forward_pe_ratio",
                     "High.1M", "Low.1M",
                 )
                 .where(col("name").isin(tickers))
-                .limit(50)
+                .limit(100)
                 .get_scanner_data()
             )
 
@@ -160,6 +208,9 @@ if tara_btn:
                 "EMA200": "EMA200",
                 "volume": "Hacim",
                 "average_volume_10d_calc": "Hacim_Ort",
+                "volume|1": "Hacim_1G_Once",
+                "price_earnings_ttm": "Trailing_PE",
+                "forward_pe_ratio": "Forward_PE",
                 "High.1M": "1M_Yuksek",
                 "Low.1M": "1M_Dusuk",
             })
@@ -201,12 +252,12 @@ if st.session_state.xyz_data:
                 return "background-color: #3d1a1a; color: #f85149"
             return ""
 
-        cols_show = ["Sembol", "Fiyat", "Gunluk %", "Haftalik %", "RSI", "MACD", "EMA Durumu", "Hacim", "Puan", "Sinyal"]
+        cols_show = ["Sembol", "Fiyat", "Gunluk %", "Haftalik %", "RSI", "MACD", "EMA Durumu", "Hacim", "Forward PE", "Puan", "Sinyal"]
         styled = (
             df_xyz[cols_show]
             .style
             .applymap(renk_sinyal, subset=["Sinyal"])
-            .background_gradient(subset=["Puan"], cmap="RdYlGn", vmin=-5, vmax=5)
+            .background_gradient(subset=["Puan"], cmap="RdYlGn", vmin=-5, vmax=7)
             .format({
                 "Fiyat": "${:.2f}",
                 "Gunluk %": "{:.2f}%",
@@ -219,8 +270,9 @@ if st.session_state.xyz_data:
         st.dataframe(df_xyz[["Sembol", "Sinyal", "Pozitifler", "Negatifler"]], use_container_width=True, hide_index=True)
 
     with tab2:
-        raw_cols = ["Sembol", "Fiyat", "Gunluk %", "RSI", "RSI_Onceki", "MACD", "MACD_Signal",
-                    "EMA5", "EMA10", "EMA50", "EMA200", "Hacim", "Hacim_Ort"]
+        raw_cols = ["Sembol", "Fiyat", "Gunluk %", "RSI", "MACD", "MACD_Signal",
+                    "EMA5", "EMA10", "EMA50", "EMA200", "Hacim", "Hacim_Ort", "Hacim_1G_Once",
+                    "Trailing_PE", "Forward_PE"]
         available = [c for c in raw_cols if c in df_raw.columns]
         st.dataframe(df_raw[available], use_container_width=True, hide_index=True)
 
@@ -234,6 +286,13 @@ if st.session_state.xyz_data:
         c2.metric("RSI", "{:.1f}".format(row_raw["RSI"]) if pd.notna(row_raw.get("RSI")) else "-")
         c3.metric("MACD", "{:.4f}".format(row_raw["MACD"]) if pd.notna(row_raw.get("MACD")) else "-")
         c4.metric("Sinyal", row_xyz["Sinyal"])
+
+        c5, c6 = st.columns(2)
+        ttm = row_raw.get("Trailing_PE")
+        fwd = row_raw.get("Forward_PE")
+        c5.metric("Trailing PE", "{:.1f}".format(ttm) if pd.notna(ttm) else "-")
+        c6.metric("Forward PE", "{:.1f}".format(fwd) if pd.notna(fwd) else "-",
+                  "iyilesme" if (pd.notna(ttm) and pd.notna(fwd) and fwd > 0 and ttm > 0 and fwd < ttm) else None)
 
         col_a, col_b = st.columns(2)
         with col_a:
