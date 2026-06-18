@@ -185,7 +185,7 @@ if tara_btn:
                     "MACD.macd", "MACD.signal",
                     "EMA5", "EMA10", "EMA50", "EMA200",
                     "volume", "average_volume_10d_calc", "volume|1",
-                    "price_earnings_ttm", "forward_pe_ratio",
+                    "price_earnings_ttm", "price_earnings",
                     "High.1M", "Low.1M",
                 )
                 .where(col("name").isin(tickers))
@@ -210,7 +210,7 @@ if tara_btn:
                 "average_volume_10d_calc": "Hacim_Ort",
                 "volume|1": "Hacim_1G_Once",
                 "price_earnings_ttm": "Trailing_PE",
-                "forward_pe_ratio": "Forward_PE",
+                "price_earnings_fwd": "Forward_PE",
                 "High.1M": "1M_Yuksek",
                 "Low.1M": "1M_Dusuk",
             })
