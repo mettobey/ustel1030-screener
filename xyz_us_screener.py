@@ -6,7 +6,7 @@ import pandas as pd
 st.set_page_config(page_title="XYZ Analizi - US Hisseler", page_icon="🔬", layout="wide")
 
 st.title("XYZ Analizi - US Hisse Teknik Tarayici")
-st.caption("RSI - MACD - EMA5/50/200 - Hacim Yonu - Forward PE - TradingView verisi")
+st.caption("RSI - MACD - EMA5/50/200 - Hacim Yonu - PEG - TradingView verisi")
 
 DEFAULT_TICKERS = [
     "ONDS", "ABCL", "NKE", "NOW", "BRZE", "QBTS", "OKLO", "CRSP", "MRVL",
@@ -33,7 +33,7 @@ def xyz_degerlendir(row):
     volume   = row.get("Hacim")
     vol_avg  = row.get("Hacim_Ort")
     vol_1g   = row.get("Hacim_1G_Once")
-    fwd_pe   = row.get("Forward_PE")
+    peg      = row.get("PEG")
     ttm_pe   = row.get("Trailing_PE")
 
     puan = 0
@@ -94,7 +94,6 @@ def xyz_degerlendir(row):
     # Hacim seviyesi + yonu
     if volume and vol_avg and vol_avg > 0:
         oran = volume / vol_avg
-        # Hacim yonu: bugun vs dun
         if vol_1g and vol_1g > 0:
             if volume > vol_1g * 1.1:
                 yon = "artan"
@@ -115,7 +114,6 @@ def xyz_degerlendir(row):
             hacim_label = "Dusuk " + str(round(oran, 1)) + "x (" + yon + ")"
             negatif.append("Dusuk hacim")
 
-        # Hacim yonu ek puan
         if yon == "artan" and fiyat and ema5 and fiyat > ema5:
             puan += 1
             pozitif.append("Hacim artarken fiyat yukari")
@@ -125,25 +123,32 @@ def xyz_degerlendir(row):
     else:
         hacim_label = "Veri yok"
 
-    # Forward PE < Trailing PE => kar buyumesi bekleniyor
-    if fwd_pe is not None and ttm_pe is not None and fwd_pe > 0 and ttm_pe > 0:
-        if fwd_pe < ttm_pe:
-            iyilesme = round((1 - fwd_pe / ttm_pe) * 100, 1)
-            pe_label = "Fwd " + str(round(fwd_pe, 1)) + " < TTM " + str(round(ttm_pe, 1)) + " (kar buyumesi +%" + str(iyilesme) + ")"
+    # PEG orani (ana valuation filtresi)
+    if peg is not None and peg > 0:
+        if peg < 0.5:
+            peg_label = str(round(peg, 2)) + " (cok ucuz)"
+            puan += 2
+            pozitif.append("PEG cok dusuk (<0.5)")
+        elif peg < 1.0:
+            peg_label = str(round(peg, 2)) + " (ucuz)"
             puan += 1
-            pozitif.append("Forward PE iyilesiyor")
+            pozitif.append("PEG makul (<1.0)")
+        elif peg < 2.0:
+            peg_label = str(round(peg, 2)) + " (normal)"
         else:
-            pe_label = "Fwd " + str(round(fwd_pe, 1)) + " > TTM " + str(round(ttm_pe, 1)) + " (kar daralmasi)"
-            negatif.append("Forward PE kotulesiyor")
-    elif fwd_pe is not None and fwd_pe > 0 and (ttm_pe is None or ttm_pe <= 0):
-        pe_label = "Fwd " + str(round(fwd_pe, 1)) + " (TTM negatif/yok)"
+            peg_label = str(round(peg, 2)) + " (pahali)"
+            puan -= 1
+            negatif.append("PEG yuksek (>2.0)")
+    elif peg is not None and peg <= 0:
+        peg_label = str(round(peg, 2)) + " (negatif - kar yok/dusuyor)"
+        negatif.append("PEG negatif")
     else:
-        pe_label = "Veri yok"
+        peg_label = "Veri yok"
 
     # Genel sinyal
-    if puan >= 5:
+    if puan >= 6:
         sinyal = "GUCLU AL"
-    elif puan >= 2:
+    elif puan >= 3:
         sinyal = "AL / IZLE"
     elif puan >= 0:
         sinyal = "NOTR / BEKLE"
@@ -157,7 +162,7 @@ def xyz_degerlendir(row):
         "MACD": macd_label,
         "EMA Durumu": ema_label,
         "Hacim": hacim_label,
-        "Forward PE": pe_label,
+        "PEG": peg_label,
         "Puan": puan,
         "Sinyal": sinyal,
         "Pozitifler": " / ".join(pozitif) if pozitif else "-",
@@ -185,7 +190,7 @@ if tara_btn:
                     "MACD.macd", "MACD.signal",
                     "EMA5", "EMA10", "EMA50", "EMA200",
                     "volume", "average_volume_10d_calc", "volume|1",
-                    "price_earnings_ttm", "price_earnings",
+                    "price_earnings_ttm", "price_earnings_growth_ttm",
                     "High.1M", "Low.1M",
                 )
                 .where(col("name").isin(tickers))
@@ -210,7 +215,7 @@ if tara_btn:
                 "average_volume_10d_calc": "Hacim_Ort",
                 "volume|1": "Hacim_1G_Once",
                 "price_earnings_ttm": "Trailing_PE",
-                "price_earnings_fwd": "Forward_PE",
+                "price_earnings_growth_ttm": "PEG",
                 "High.1M": "1M_Yuksek",
                 "Low.1M": "1M_Dusuk",
             })
@@ -252,12 +257,12 @@ if st.session_state.xyz_data:
                 return "background-color: #3d1a1a; color: #f85149"
             return ""
 
-        cols_show = ["Sembol", "Fiyat", "Gunluk %", "Haftalik %", "RSI", "MACD", "EMA Durumu", "Hacim", "Forward PE", "Puan", "Sinyal"]
+        cols_show = ["Sembol", "Fiyat", "Gunluk %", "Haftalik %", "RSI", "MACD", "EMA Durumu", "Hacim", "PEG", "Puan", "Sinyal"]
         styled = (
             df_xyz[cols_show]
             .style
             .applymap(renk_sinyal, subset=["Sinyal"])
-            .background_gradient(subset=["Puan"], cmap="RdYlGn", vmin=-5, vmax=7)
+            .background_gradient(subset=["Puan"], cmap="RdYlGn", vmin=-5, vmax=8)
             .format({
                 "Fiyat": "${:.2f}",
                 "Gunluk %": "{:.2f}%",
@@ -272,7 +277,7 @@ if st.session_state.xyz_data:
     with tab2:
         raw_cols = ["Sembol", "Fiyat", "Gunluk %", "RSI", "MACD", "MACD_Signal",
                     "EMA5", "EMA10", "EMA50", "EMA200", "Hacim", "Hacim_Ort", "Hacim_1G_Once",
-                    "Trailing_PE", "Forward_PE"]
+                    "Trailing_PE", "PEG"]
         available = [c for c in raw_cols if c in df_raw.columns]
         st.dataframe(df_raw[available], use_container_width=True, hide_index=True)
 
@@ -289,10 +294,10 @@ if st.session_state.xyz_data:
 
         c5, c6 = st.columns(2)
         ttm = row_raw.get("Trailing_PE")
-        fwd = row_raw.get("Forward_PE")
+        peg = row_raw.get("PEG")
         c5.metric("Trailing PE", "{:.1f}".format(ttm) if pd.notna(ttm) else "-")
-        c6.metric("Forward PE", "{:.1f}".format(fwd) if pd.notna(fwd) else "-",
-                  "iyilesme" if (pd.notna(ttm) and pd.notna(fwd) and fwd > 0 and ttm > 0 and fwd < ttm) else None)
+        c6.metric("PEG", "{:.2f}".format(peg) if pd.notna(peg) else "-",
+                  "ucuz" if (pd.notna(peg) and 0 < peg < 1.0) else None)
 
         col_a, col_b = st.columns(2)
         with col_a:
