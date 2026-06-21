@@ -2,11 +2,12 @@ import streamlit as st
 import json
 import requests
 import base64
+import pandas as pd
 from tradingview_screener import Query, col
 from datetime import datetime
 
-st.set_page_config(page_title="ABD hisse USTEL1030 Tarayıcı (mburha YTD)", page_icon="📈", layout="wide")
-st.title("📈 ABD hisse USTEL1030 Tarayıcı (mburha YTD)")
+st.set_page_config(page_title="USTEL1030 Tarayıcı", page_icon="📈", layout="wide")
+st.title("📈 USTEL1030 Tarayıcı")
 st.caption("EMA10↑EMA30 · F/K ≤ 50 · P/B ≤ 25 · Haftalık Değişim < %15")
 
 def save_to_github(df):
@@ -31,7 +32,6 @@ def tavsiye_uret(rsi, macd, macd_signal, ema10, ema50, ema200, fiyat):
     puanlar = 0
     yorumlar = []
 
-    # RSI
     if rsi is None:
         rsi_durum = "Veri yok"
     elif rsi < 30:
@@ -45,7 +45,6 @@ def tavsiye_uret(rsi, macd, macd_signal, ema10, ema50, ema200, fiyat):
     else:
         rsi_durum = f"{rsi:.0f} — Nötr"
 
-    # MACD
     if macd is None or macd_signal is None:
         macd_durum = "Veri yok"
     elif macd > macd_signal:
@@ -57,23 +56,18 @@ def tavsiye_uret(rsi, macd, macd_signal, ema10, ema50, ema200, fiyat):
         puanlar -= 1
         yorumlar.append("MACD negatif")
 
-    # EMA Durumu
     ema_satirlar = []
     if ema10 and fiyat:
         ema_satirlar.append("EMA10 ✅" if fiyat > ema10 else "EMA10 ❌")
-        if fiyat > ema10:
-            puanlar += 1
+        if fiyat > ema10: puanlar += 1
     if ema50 and fiyat:
         ema_satirlar.append("EMA50 ✅" if fiyat > ema50 else "EMA50 ❌")
-        if fiyat > ema50:
-            puanlar += 1
+        if fiyat > ema50: puanlar += 1
     if ema200 and fiyat:
         ema_satirlar.append("EMA200 ✅" if fiyat > ema200 else "EMA200 ❌")
-        if fiyat > ema200:
-            puanlar += 1
+        if fiyat > ema200: puanlar += 1
     ema_durum = " / ".join(ema_satirlar) if ema_satirlar else "Veri yok"
 
-    # Tavsiye
     if puanlar >= 3:
         tavsiye = "AL ✅"
     elif puanlar >= 1:
@@ -82,15 +76,53 @@ def tavsiye_uret(rsi, macd, macd_signal, ema10, ema50, ema200, fiyat):
         tavsiye = "UZAK DUR ❌"
 
     yorum = ", ".join(yorumlar) if yorumlar else "Nötr görünüm"
-
     return rsi_durum, macd_durum, ema_durum, tavsiye, yorum
 
-if "df_result" not in st.session_state:
-    st.session_state.df_result = None
+def skorla(df):
+    df = df.copy().reset_index(drop=True)
+    df['Score'] = 0
+    n = len(df)
+    top_n = 5 if n >= 5 else (3 if n >= 3 else (2 if n >= 2 else (1 if n >= 1 else 0)))
+    if top_n > 0:
+        df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
+        df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
+        df.loc[df['PD/DD'].dropna().nsmallest(top_n).index, 'Score'] += 3
+    df = df.sort_values('Score', ascending=False).reset_index(drop=True)
+    return df
+
+def teknik_tablo(df, top_n):
+    rows = []
+    for _, row in df.head(top_n).iterrows():
+        rsi_d, macd_d, ema_d, tav, yorum = tavsiye_uret(
+            row.get('RSI'), row.get('MACD'), row.get('MACD_Signal'),
+            row.get('EMA10'), row.get('EMA50'), row.get('EMA200'),
+            row.get('Fiyat')
+        )
+        rows.append({
+            'Sembol': row['Sembol'], 'RSI': rsi_d, 'MACD': macd_d,
+            'EMA Durumu': ema_d, 'Tavsiye': tav, 'Yorum': yorum
+        })
+    return pd.DataFrame(rows)
+
+def goster_tablo(df):
+    st.dataframe(
+        df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD', 'Score']].style
+          .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
+          .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
+          .background_gradient(subset=['Score'], cmap='RdYlGn')
+          .format({
+              'Fiyat': '${:.2f}', 'Haftalık %': '{:.2f}%',
+              'F/K': '{:.1f}', 'PD/DD': '{:.2f}', 'Score': '{:.0f}'
+          }),
+        use_container_width=True, hide_index=True
+    )
+
+if "buyuk_df" not in st.session_state:
+    st.session_state.buyuk_df = None
+if "kucuk_df" not in st.session_state:
+    st.session_state.kucuk_df = None
 if "count_result" not in st.session_state:
     st.session_state.count_result = 0
-if "df_technical" not in st.session_state:
-    st.session_state.df_technical = None
 
 if st.button("▶ Tara", type="primary"):
     with st.spinner("Taranıyor..."):
@@ -99,7 +131,7 @@ if st.button("▶ Tara", type="primary"):
                 Query()
                 .select(
                     'name', 'close', 'change|1W',
-                    'price_earnings_ttm', 'price_book_ratio',
+                    'price_earnings_ttm', 'price_book_ratio', 'market_cap_basic',
                     'RSI', 'MACD.macd', 'MACD.signal',
                     'EMA10', 'EMA50', 'EMA200'
                 )
@@ -109,22 +141,15 @@ if st.button("▶ Tara", type="primary"):
                     col('price_earnings_ttm').between(0, 50),
                     col('price_book_ratio').between(0, 25),
                 )
-                .limit(200)
+                .limit(500)
                 .get_scanner_data()
             )
 
             df = df.rename(columns={
-                'name': 'Sembol',
-                'close': 'Fiyat',
-                'change|1W': 'Haftalık %',
-                'price_earnings_ttm': 'F/K',
-                'price_book_ratio': 'PD/DD',
-                'RSI': 'RSI',
-                'MACD.macd': 'MACD',
-                'MACD.signal': 'MACD_Signal',
-                'EMA10': 'EMA10',
-                'EMA50': 'EMA50',
-                'EMA200': 'EMA200',
+                'name': 'Sembol', 'close': 'Fiyat', 'change|1W': 'Haftalık %',
+                'price_earnings_ttm': 'F/K', 'price_book_ratio': 'PD/DD',
+                'market_cap_basic': 'MCap',
+                'MACD.macd': 'MACD', 'MACD.signal': 'MACD_Signal',
             })
 
             df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
@@ -133,69 +158,44 @@ if st.button("▶ Tara", type="primary"):
             df = df[~df['Sembol'].str.endswith(('F', 'Y'))]
             df = df.reset_index(drop=True)
 
-            df['Score'] = 0
-            n = len(df)
-            top_n = 5 if n >= 5 else (3 if n >= 3 else (1 if n >= 1 else 0))
-            if top_n > 0:
-                df.loc[df['Haftalık %'].dropna().nsmallest(top_n).index, 'Score'] += 3
-                df.loc[df['F/K'].dropna().nsmallest(top_n).index, 'Score'] += 4
-                df.loc[df['PD/DD'].dropna().nsmallest(top_n).index, 'Score'] += 3
+            buyuk = df[df['MCap'] >= 500_000_000].copy()
+            kucuk = df[df['MCap'] < 500_000_000].copy()
 
-            df = df.sort_values('Score', ascending=False).reset_index(drop=True)
-            st.session_state.df_result = df
+            st.session_state.buyuk_df = skorla(buyuk)
+            st.session_state.kucuk_df = skorla(kucuk)
             st.session_state.count_result = count
-
-            # Top hisseler için teknik analiz tablosu
-            top_df = df.head(top_n).copy()
-            teknik_rows = []
-            for _, row in top_df.iterrows():
-                rsi_d, macd_d, ema_d, tav, yorum = tavsiye_uret(
-                    row.get('RSI'), row.get('MACD'), row.get('MACD_Signal'),
-                    row.get('EMA10'), row.get('EMA50'), row.get('EMA200'),
-                    row.get('Fiyat')
-                )
-                teknik_rows.append({
-                    'Sembol': row['Sembol'],
-                    'RSI': rsi_d,
-                    'MACD': macd_d,
-                    'EMA Durumu': ema_d,
-                    'Tavsiye': tav,
-                    'Yorum': yorum
-                })
-            
-            import pandas as pd
-            st.session_state.df_technical = pd.DataFrame(teknik_rows)
 
         except Exception as e:
             st.error(f"Hata: {e}")
 
-if st.session_state.df_result is not None:
-    df = st.session_state.df_result
-    n = len(df)
-    top_n = min(5, n) if n > 0 else 0
+if st.session_state.buyuk_df is not None:
+    st.success(f"✅ Toplam {st.session_state.count_result} hisse bulundu")
 
-    st.success(f"✅ {st.session_state.count_result} hisse bulundu")
-    st.dataframe(
-        df[['Sembol', 'Fiyat', 'Haftalık %', 'F/K', 'PD/DD', 'Score']].style
-          .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
-          .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
-          .background_gradient(subset=['Score'], cmap='RdYlGn')
-          .format({
-              'Fiyat': '${:.2f}',
-              'Haftalık %': '{:.2f}%',
-              'F/K': '{:.1f}',
-              'PD/DD': '{:.2f}',
-              'Score': '{:.0f}'
-          }),
-        use_container_width=True,
-        hide_index=True
-    )
+    buyuk = st.session_state.buyuk_df
+    kucuk = st.session_state.kucuk_df
 
-    if st.session_state.df_technical is not None and not st.session_state.df_technical.empty:
-        st.divider()
-        st.subheader(f"📊 Top {top_n} Teknik Analiz")
-        st.dataframe(st.session_state.df_technical, use_container_width=True, hide_index=True)
+    st.divider()
+    st.header(f"🏢 500M$ Üzeri Şirketler ({len(buyuk)})")
+    if len(buyuk) > 0:
+        goster_tablo(buyuk)
+        bn = min(5, len(buyuk))
+        st.subheader(f"📊 500M$ Üzeri — Top {bn} Teknik Analiz")
+        st.dataframe(teknik_tablo(buyuk, bn), use_container_width=True, hide_index=True)
+    else:
+        st.info("Bu kategoride hisse bulunamadı.")
 
+    st.divider()
+    st.header(f"🔬 500M$ Altı Micro Şirketler ({len(kucuk)})")
+    if len(kucuk) > 0:
+        goster_tablo(kucuk)
+        kn = min(5, len(kucuk))
+        st.subheader(f"📊 500M$ Altı — Top {kn} Teknik Analiz")
+        st.dataframe(teknik_tablo(kucuk, kn), use_container_width=True, hide_index=True)
+    else:
+        st.info("Bu kategoride hisse bulunamadı.")
+
+    st.divider()
     if st.button("📤 GitHub'a Kaydet"):
-        save_to_github(df)
+        birlesik = pd.concat([buyuk, kucuk], ignore_index=True)
+        save_to_github(birlesik)
         st.success("✅ GitHub'a kaydedildi!")
