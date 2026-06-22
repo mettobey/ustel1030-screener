@@ -261,7 +261,7 @@ if st.session_state.xyz_data:
         styled = (
             df_xyz[cols_show]
             .style
-            .applymap(renk_sinyal, subset=["Sinyal"])
+            .map(renk_sinyal, subset=["Sinyal"])
             .background_gradient(subset=["Puan"], cmap="RdYlGn", vmin=-5, vmax=8)
             .format({
                 "Fiyat": "${:.2f}",
