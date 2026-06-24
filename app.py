@@ -108,9 +108,6 @@ def tarama_yap(ema50_donus=False):
         col('price_earnings_ttm').between(0, 50),
         col('price_book_ratio').between(0, 25),
     ]
-    if ema50_donus:
-        filtreler.append(col('close') > col('EMA50'))
-        filtreler.append(col('close') < col('EMA20'))
 
     count, df = (
         Query()
@@ -125,6 +122,10 @@ def tarama_yap(ema50_donus=False):
         'price_earnings_ttm': 'F/K', 'price_book_ratio': 'PD/DD',
         'market_cap_basic': 'MCap', 'MACD.macd': 'MACD', 'MACD.signal': 'MACD_Signal',
     })
+
+    if ema50_donus:
+        df = df[(df['Fiyat'] > df['EMA50']) & (df['Fiyat'] <= df['EMA50'] * 1.05)]
+
     df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
     df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
     df = df[~df['Sembol'].str.contains(r'^[A-Z]+P[A-Z]?$', regex=True)]
@@ -159,8 +160,8 @@ with c2:
                 count, buyuk, kucuk = tarama_yap(ema50_donus=True)
                 st.session_state.buyuk_df = buyuk
                 st.session_state.kucuk_df = kucuk
-                st.session_state.count_result = count
-                st.session_state.mod = "Klasik + EMA50 Dönüş"
+                st.session_state.count_result = len(buyuk) + len(kucuk)
+                st.session_state.mod = "Klasik + EMA50 Dönüş (%0-5)"
             except Exception as e:
                 st.error(f"Hata: {e}")
 
