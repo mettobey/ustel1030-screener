@@ -31,31 +31,20 @@ def save_to_github(df):
 def tavsiye_uret(rsi, macd, macd_signal, ema10, ema50, ema200, fiyat):
     puanlar = 0
     yorumlar = []
-
     if rsi is None:
         rsi_durum = "Veri yok"
     elif rsi < 30:
-        rsi_durum = f"{rsi:.0f} — Aşırı Satım"
-        puanlar += 2
-        yorumlar.append("RSI aşırı satımda")
+        rsi_durum = f"{rsi:.0f} — Aşırı Satım"; puanlar += 2; yorumlar.append("RSI aşırı satımda")
     elif rsi > 70:
-        rsi_durum = f"{rsi:.0f} — Aşırı Alım"
-        puanlar -= 2
-        yorumlar.append("RSI aşırı alımda")
+        rsi_durum = f"{rsi:.0f} — Aşırı Alım"; puanlar -= 2; yorumlar.append("RSI aşırı alımda")
     else:
         rsi_durum = f"{rsi:.0f} — Nötr"
-
     if macd is None or macd_signal is None:
         macd_durum = "Veri yok"
     elif macd > macd_signal:
-        macd_durum = "Pozitif ✅"
-        puanlar += 1
-        yorumlar.append("MACD pozitif")
+        macd_durum = "Pozitif ✅"; puanlar += 1; yorumlar.append("MACD pozitif")
     else:
-        macd_durum = "Negatif ❌"
-        puanlar -= 1
-        yorumlar.append("MACD negatif")
-
+        macd_durum = "Negatif ❌"; puanlar -= 1; yorumlar.append("MACD negatif")
     ema_satirlar = []
     if ema10 and fiyat:
         ema_satirlar.append("EMA10 ✅" if fiyat > ema10 else "EMA10 ❌")
@@ -67,14 +56,12 @@ def tavsiye_uret(rsi, macd, macd_signal, ema10, ema50, ema200, fiyat):
         ema_satirlar.append("EMA200 ✅" if fiyat > ema200 else "EMA200 ❌")
         if fiyat > ema200: puanlar += 1
     ema_durum = " / ".join(ema_satirlar) if ema_satirlar else "Veri yok"
-
     if puanlar >= 3:
         tavsiye = "AL ✅"
     elif puanlar >= 1:
         tavsiye = "İZLE 🟡"
     else:
         tavsiye = "UZAK DUR ❌"
-
     yorum = ", ".join(yorumlar) if yorumlar else "Nötr görünüm"
     return rsi_durum, macd_durum, ema_durum, tavsiye, yorum
 
@@ -95,8 +82,7 @@ def teknik_tablo(df, top_n):
     for _, row in df.head(top_n).iterrows():
         rsi_d, macd_d, ema_d, tav, yorum = tavsiye_uret(
             row.get('RSI'), row.get('MACD'), row.get('MACD_Signal'),
-            row.get('EMA10'), row.get('EMA50'), row.get('EMA200'),
-            row.get('Fiyat')
+            row.get('EMA10'), row.get('EMA50'), row.get('EMA200'), row.get('Fiyat')
         )
         rows.append({
             'Sembol': row['Sembol'], 'RSI': rsi_d, 'MACD': macd_d,
@@ -110,67 +96,76 @@ def goster_tablo(df):
           .background_gradient(subset=['PD/DD'], cmap='RdYlGn_r')
           .background_gradient(subset=['F/K'], cmap='RdYlGn_r')
           .background_gradient(subset=['Score'], cmap='RdYlGn')
-          .format({
-              'Fiyat': '${:.2f}', 'Haftalık %': '{:.2f}%',
-              'F/K': '{:.1f}', 'PD/DD': '{:.2f}', 'Score': '{:.0f}'
-          }),
+          .format({'Fiyat': '${:.2f}', 'Haftalık %': '{:.2f}%',
+                   'F/K': '{:.1f}', 'PD/DD': '{:.2f}', 'Score': '{:.0f}'}),
         use_container_width=True, hide_index=True
     )
 
+def tarama_yap(ema50_donus=False):
+    filtreler = [
+        col('EMA10').crosses_above(col('EMA30')),
+        col('change|1W') < 15,
+        col('price_earnings_ttm').between(0, 50),
+        col('price_book_ratio').between(0, 25),
+    ]
+    if ema50_donus:
+        filtreler.append(col('close') > col('EMA50'))
+        filtreler.append(col('close') <= col('EMA50') * 1.05)
+
+    count, df = (
+        Query()
+        .select('name', 'close', 'change|1W', 'price_earnings_ttm', 'price_book_ratio',
+                'market_cap_basic', 'RSI', 'MACD.macd', 'MACD.signal', 'EMA10', 'EMA50', 'EMA200')
+        .where(*filtreler)
+        .limit(500)
+        .get_scanner_data()
+    )
+    df = df.rename(columns={
+        'name': 'Sembol', 'close': 'Fiyat', 'change|1W': 'Haftalık %',
+        'price_earnings_ttm': 'F/K', 'price_book_ratio': 'PD/DD',
+        'market_cap_basic': 'MCap', 'MACD.macd': 'MACD', 'MACD.signal': 'MACD_Signal',
+    })
+    df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
+    df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
+    df = df[~df['Sembol'].str.contains(r'^[A-Z]+P[A-Z]?$', regex=True)]
+    df = df[~df['Sembol'].str.endswith(('F', 'Y'))]
+    df = df.reset_index(drop=True)
+    buyuk = skorla(df[df['MCap'] >= 500_000_000].copy())
+    kucuk = skorla(df[df['MCap'] < 500_000_000].copy())
+    return count, buyuk, kucuk
+
 if "buyuk_df" not in st.session_state:
     st.session_state.buyuk_df = None
-if "kucuk_df" not in st.session_state:
     st.session_state.kucuk_df = None
-if "count_result" not in st.session_state:
     st.session_state.count_result = 0
+    st.session_state.mod = ""
 
-if st.button("▶ Tara", type="primary"):
-    with st.spinner("Taranıyor..."):
-        try:
-            count, df = (
-                Query()
-                .select(
-                    'name', 'close', 'change|1W',
-                    'price_earnings_ttm', 'price_book_ratio', 'market_cap_basic',
-                    'RSI', 'MACD.macd', 'MACD.signal',
-                    'EMA10', 'EMA50', 'EMA200'
-                )
-                .where(
-                    col('EMA10').crosses_above(col('EMA30')),
-                    col('change|1W') < 15,
-                    col('price_earnings_ttm').between(0, 50),
-                    col('price_book_ratio').between(0, 25),
-                )
-                .limit(500)
-                .get_scanner_data()
-            )
-
-            df = df.rename(columns={
-                'name': 'Sembol', 'close': 'Fiyat', 'change|1W': 'Haftalık %',
-                'price_earnings_ttm': 'F/K', 'price_book_ratio': 'PD/DD',
-                'market_cap_basic': 'MCap',
-                'MACD.macd': 'MACD', 'MACD.signal': 'MACD_Signal',
-            })
-
-            df = df[~df['Sembol'].str.contains(r'[/\.\-][A-Z]{1,2}$', regex=True)]
-            df = df[~df['Sembol'].str.endswith(('W', 'U', 'R', 'WS'))]
-            df = df[~df['Sembol'].str.contains(r'^[A-Z]+P[A-Z]?$', regex=True)]
-            df = df[~df['Sembol'].str.endswith(('F', 'Y'))]
-            df = df.reset_index(drop=True)
-
-            buyuk = df[df['MCap'] >= 500_000_000].copy()
-            kucuk = df[df['MCap'] < 500_000_000].copy()
-
-            st.session_state.buyuk_df = skorla(buyuk)
-            st.session_state.kucuk_df = skorla(kucuk)
-            st.session_state.count_result = count
-
-        except Exception as e:
-            st.error(f"Hata: {e}")
+c1, c2 = st.columns(2)
+with c1:
+    if st.button("▶ Tara (Klasik)", type="primary", use_container_width=True):
+        with st.spinner("Taranıyor..."):
+            try:
+                count, buyuk, kucuk = tarama_yap(ema50_donus=False)
+                st.session_state.buyuk_df = buyuk
+                st.session_state.kucuk_df = kucuk
+                st.session_state.count_result = count
+                st.session_state.mod = "Klasik (EMA10↑EMA30)"
+            except Exception as e:
+                st.error(f"Hata: {e}")
+with c2:
+    if st.button("▶ Tara (+ EMA50 Dönüş)", use_container_width=True):
+        with st.spinner("Taranıyor..."):
+            try:
+                count, buyuk, kucuk = tarama_yap(ema50_donus=True)
+                st.session_state.buyuk_df = buyuk
+                st.session_state.kucuk_df = kucuk
+                st.session_state.count_result = count
+                st.session_state.mod = "Klasik + EMA50 Dönüş (%0-5)"
+            except Exception as e:
+                st.error(f"Hata: {e}")
 
 if st.session_state.buyuk_df is not None:
-    st.success(f"✅ Toplam {st.session_state.count_result} hisse bulundu")
-
+    st.success(f"✅ {st.session_state.mod} — Toplam {st.session_state.count_result} hisse")
     buyuk = st.session_state.buyuk_df
     kucuk = st.session_state.kucuk_df
 
