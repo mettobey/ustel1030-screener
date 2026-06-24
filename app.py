@@ -15,15 +15,29 @@ def save_to_github(df):
     repo = st.secrets["GITHUB_REPO"]
     path = "results/abd_results.json"
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
-    content = {
+    headers = {"Authorization": f"token {token}"}
+
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        sha = r.json().get("sha")
+        try:
+            mevcut = json.loads(base64.b64decode(r.json()["content"]).decode())
+            if not isinstance(mevcut, list):
+                mevcut = []
+        except Exception:
+            mevcut = []
+    else:
+        sha = None
+        mevcut = []
+
+    yeni_kayit = {
         "tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "hisseler": df.to_dict(orient='records')
     }
-    headers = {"Authorization": f"token {token}"}
-    r = requests.get(url, headers=headers)
-    sha = r.json().get("sha") if r.status_code == 200 else None
-    encoded = base64.b64encode(json.dumps(content, ensure_ascii=False, indent=2).encode()).decode()
-    payload = {"message": f"Update {datetime.now().strftime('%Y-%m-%d %H:%M')}", "content": encoded}
+    mevcut.append(yeni_kayit)
+
+    encoded = base64.b64encode(json.dumps(mevcut, ensure_ascii=False, indent=2).encode()).decode()
+    payload = {"message": f"Append {datetime.now().strftime('%Y-%m-%d %H:%M')}", "content": encoded}
     if sha:
         payload["sha"] = sha
     requests.put(url, headers=headers, json=payload)
@@ -194,4 +208,4 @@ if st.session_state.buyuk_df is not None:
     if st.button("📤 GitHub'a Kaydet"):
         birlesik = pd.concat([buyuk, kucuk], ignore_index=True)
         save_to_github(birlesik)
-        st.success("✅ GitHub'a kaydedildi!")
+        st.success("✅ GitHub'a eklendi! (Geçmiş korunuyor)")
