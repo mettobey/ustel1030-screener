@@ -110,12 +110,12 @@ def tarama_yap(ema50_donus=False):
     ]
     if ema50_donus:
         filtreler.append(col('close') > col('EMA50'))
-        filtreler.append(col('close') <= col('EMA50') * 1.05)
+        filtreler.append(col('close') < col('EMA20'))
 
     count, df = (
         Query()
         .select('name', 'close', 'change|1W', 'price_earnings_ttm', 'price_book_ratio',
-                'market_cap_basic', 'RSI', 'MACD.macd', 'MACD.signal', 'EMA10', 'EMA50', 'EMA200')
+                'market_cap_basic', 'RSI', 'MACD.macd', 'MACD.signal', 'EMA10', 'EMA20', 'EMA50', 'EMA200')
         .where(*filtreler)
         .limit(500)
         .get_scanner_data()
@@ -160,7 +160,7 @@ with c2:
                 st.session_state.buyuk_df = buyuk
                 st.session_state.kucuk_df = kucuk
                 st.session_state.count_result = count
-                st.session_state.mod = "Klasik + EMA50 Dönüş (%0-5)"
+                st.session_state.mod = "Klasik + EMA50 Dönüş"
             except Exception as e:
                 st.error(f"Hata: {e}")
 
