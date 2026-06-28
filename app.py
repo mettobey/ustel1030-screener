@@ -8,7 +8,7 @@ st.set_page_config(page_title="XYZ Analizi - ABD + BIST", page_icon="🔬", layo
 st.title("XYZ Analizi - ABD + BIST Tarayici")
 st.caption("RSI - MACD - EMA - Hacim - PEG - Dip Sinyali - TradingView verisi")
 
-DEFAULT_US = ["BRZE", "PLTR", "NVDA", "MRVL", "OKLO", "CEG"]
+DEFAULT_US = ["BRZE", "PLTR", "NVDA", "MRVL", "OKLO", "CEG" , "NKE", "LLY" ,"ABCL", "AVGO" , "DRAM", "MU" ,"MRVL", "NOW" , "ANET", "NFLX"   ]
 DEFAULT_BIST = ["AYGAZ", "DOAS", "EREGL"]
 
 st.sidebar.header("Ayarlar")
